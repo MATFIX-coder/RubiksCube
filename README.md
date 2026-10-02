@@ -1,3 +1,7 @@
+<p align="center">
+  <strong>English</strong> · <a href="README_RU.md">Русский</a>
+</p>
+
 <div align="center">
 
 # Rubik’s Cube
