@@ -1,66 +1,18 @@
 import type { Axis, GridCoord } from '../math/discrete';
+import { DEFAULT_FRAME, MOVE_LETTERS, invertNotation, moveForLetter, notationInFrame, type MoveLetter } from './notation';
 import type { CubeMove } from './types';
 
-const FACE_MAP = {
-  R: { axis: 'x', layer: 1, base: -1 },
-  L: { axis: 'x', layer: -1, base: 1 },
-  U: { axis: 'y', layer: 1, base: -1 },
-  D: { axis: 'y', layer: -1, base: 1 },
-  F: { axis: 'z', layer: 1, base: -1 },
-  B: { axis: 'z', layer: -1, base: 1 },
-} as const;
+export type Face = 'U' | 'D' | 'L' | 'R' | 'F' | 'B';
 
-export type Face = keyof typeof FACE_MAP;
-
-function clampQuarterTurns(value: number): -2 | -1 | 1 | 2 {
-  if (value === 2 || value === -2) return 2;
-  return value >= 0 ? 1 : -1;
-}
-
+/** Parses standard notation (R, U', F2, M, E', S2…) in the default orientation. */
 export function moveFromNotation(notation: string): CubeMove {
-  const face = notation[0] as Face;
-  const mapping = FACE_MAP[face];
-  if (!mapping) throw new Error(`Unsupported move: ${notation}`);
-
-  const isDouble = notation.includes('2');
-  const isPrime = notation.includes("'");
-  const quarterTurns = isDouble
-    ? 2
-    : clampQuarterTurns(mapping.base * (isPrime ? -1 : 1));
-
-  return {
-    axis: mapping.axis,
-    layer: mapping.layer,
-    quarterTurns,
-    notation: `${face}${isDouble ? '2' : isPrime ? "'" : ''}`,
-  };
+  const letter = notation[0] as MoveLetter;
+  if (!MOVE_LETTERS.includes(letter)) throw new Error(`Unsupported move: ${notation}`);
+  return moveForLetter(DEFAULT_FRAME, letter, notation.includes("'"), notation.includes('2'));
 }
 
 export function notationForMove(axis: Axis, layer: GridCoord, turns: -2 | -1 | 1 | 2): string {
-  const absDouble = Math.abs(turns) === 2;
-
-  if (layer === 0) {
-    const middle = axis === 'x' ? 'M' : axis === 'y' ? 'E' : 'S';
-    const conventionalBase = axis === 'z' ? -1 : 1;
-    const prime = turns !== 2 && turns !== -2 && Math.sign(turns) !== conventionalBase;
-    return `${middle}${absDouble ? '2' : prime ? "'" : ''}`;
-  }
-
-  let face: Face;
-  let base: number;
-  if (axis === 'x') {
-    face = layer === 1 ? 'R' : 'L';
-    base = layer === 1 ? -1 : 1;
-  } else if (axis === 'y') {
-    face = layer === 1 ? 'U' : 'D';
-    base = layer === 1 ? -1 : 1;
-  } else {
-    face = layer === 1 ? 'F' : 'B';
-    base = layer === 1 ? -1 : 1;
-  }
-
-  const prime = !absDouble && Math.sign(turns) !== base;
-  return `${face}${absDouble ? '2' : prime ? "'" : ''}`;
+  return notationInFrame(DEFAULT_FRAME, { axis, layer, quarterTurns: turns });
 }
 
 export function createMove(axis: Axis, layer: GridCoord, turns: -2 | -1 | 1 | 2): CubeMove {
@@ -76,7 +28,23 @@ export function inverseMove(move: CubeMove): CubeMove {
   const inverseTurns = Math.abs(move.quarterTurns) === 2
     ? move.quarterTurns
     : (move.quarterTurns * -1) as -1 | 1;
-  return createMove(move.axis, move.layer, inverseTurns);
+  return { ...move, quarterTurns: inverseTurns, notation: invertNotation(move.notation) };
+}
+
+/** Merges neighbouring turns of the same layer (R R → R2, R R' → nothing). */
+export function simplifyMoves(moves: readonly CubeMove[]): CubeMove[] {
+  const stack: CubeMove[] = [];
+  for (const move of moves) {
+    const top = stack[stack.length - 1];
+    if (!top || top.axis !== move.axis || top.layer !== move.layer) {
+      stack.push(move);
+      continue;
+    }
+    stack.pop();
+    const sum = (((top.quarterTurns + move.quarterTurns) % 4) + 4) % 4;
+    if (sum !== 0) stack.push(createMove(move.axis, move.layer, sum === 3 ? -1 : sum as 1 | 2));
+  }
+  return stack;
 }
 
 export const BASIC_MOVES: readonly string[] = [

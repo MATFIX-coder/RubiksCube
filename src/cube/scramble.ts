@@ -1,4 +1,6 @@
-import { moveFromNotation, type Face } from './moves';
+import { applyMoves, createSolvedCubies } from './CubeState';
+import { moveFromNotation, simplifyMoves, type Face } from './moves';
+import { isSolved } from './solved';
 import type { CubeMove } from './types';
 
 const FACES: readonly Face[] = ['U', 'D', 'L', 'R', 'F', 'B'];
@@ -7,7 +9,7 @@ const AXIS_FOR_FACE: Record<Face, 'x' | 'y' | 'z'> = {
   U: 'y', D: 'y', L: 'x', R: 'x', F: 'z', B: 'z',
 };
 
-export function generateScramble(length = 22): CubeMove[] {
+function randomSequence(length: number): CubeMove[] {
   const moves: CubeMove[] = [];
   let previousFace: Face | null = null;
   let previousAxis: 'x' | 'y' | 'z' | null = null;
@@ -25,4 +27,18 @@ export function generateScramble(length = 22): CubeMove[] {
   }
 
   return moves;
+}
+
+/**
+ * Short scrambles can accidentally cancel out (R L R' L'), so a sequence is
+ * accepted only if nothing collapses and the cube really ends up scrambled.
+ */
+export function generateScramble(length = 22): CubeMove[] {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const moves = randomSequence(length);
+    if (simplifyMoves(moves).length !== length) continue;
+    if (isSolved(applyMoves(createSolvedCubies(), moves))) continue;
+    return moves;
+  }
+  return randomSequence(length);
 }

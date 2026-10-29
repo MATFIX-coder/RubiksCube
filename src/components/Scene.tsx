@@ -1,6 +1,7 @@
 import { ContactShadows, Environment, Lightformer, OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { frameFromCamera, type ViewFrame } from '../cube/notation';
 import type { ActiveRotation, CubieState, CubeMove } from '../cube/types';
 import { RubiksCube } from './RubiksCube';
 
@@ -12,6 +13,16 @@ interface SceneProps {
   cubeKey: number;
   onGestureCommit: (move: CubeMove, fromAngle: number) => void;
   onRotationComplete: (rotation: ActiveRotation) => void;
+  onFrameSource: (source: () => ViewFrame) => void;
+}
+
+/** Lets the UI ask which side of the cube currently faces the viewer. */
+function ViewFrameProbe({ onFrameSource }: { onFrameSource: (source: () => ViewFrame) => void }) {
+  const camera = useThree((state) => state.camera);
+  useEffect(() => {
+    onFrameSource(() => frameFromCamera(camera.position.x, camera.position.z));
+  }, [camera, onFrameSource]);
+  return null;
 }
 
 export function Scene({
@@ -22,15 +33,19 @@ export function Scene({
   cubeKey,
   onGestureCommit,
   onRotationComplete,
+  onFrameSource,
 }: SceneProps) {
   const [orbitLocked, setOrbitLocked] = useState(false);
   const { size } = useThree();
   const aspect = size.width / Math.max(1, size.height);
-  const cameraFov = aspect < 0.7 ? 46 : aspect < 1 ? 38 : 31;
+  // Keep at least ~31° horizontally so the cube never gets cropped on tall phone screens.
+  const fitWidthFov = (2 * Math.atan(Math.tan((31 / 2) * Math.PI / 180) / aspect) * 180) / Math.PI;
+  const cameraFov = Math.min(64, Math.max(31, fitWidthFov));
 
   return (
     <>
       <PerspectiveCamera makeDefault position={[5.7, 4.7, 6.6]} fov={cameraFov} near={0.1} far={100} />
+      <ViewFrameProbe onFrameSource={onFrameSource} />
       <OrbitControls
         makeDefault
         enabled={!orbitLocked && !activeRotation}
@@ -61,7 +76,7 @@ export function Scene({
         shadow-camera-bottom={-5}
         shadow-bias={-0.0002}
       />
-      <pointLight key={solvedPulse} position={[-3, 3.2, 4]} intensity={solvedPulse > 0 ? 0.75 : 0.25} distance={10} decay={2} />
+      <pointLight key={`light-${solvedPulse}`} position={[-3, 3.2, 4]} intensity={solvedPulse > 0 ? 0.75 : 0.25} distance={10} decay={2} />
 
       <Environment resolution={512} background={false}>
         <Lightformer form="rect" intensity={5.2} position={[0, 5, -7]} scale={[8, 8, 1]} />
@@ -73,10 +88,11 @@ export function Scene({
       </Environment>
 
       <RubiksCube
-        key={cubeKey}
+        key={`cube-${cubeKey}`}
         cubies={cubies}
         activeRotation={activeRotation}
         interactionEnabled={interactionEnabled}
+        celebrateKey={solvedPulse}
         onGestureCommit={onGestureCommit}
         onRotationComplete={onRotationComplete}
         onOrbitLockChange={setOrbitLocked}

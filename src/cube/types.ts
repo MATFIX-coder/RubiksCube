@@ -22,7 +22,7 @@ export interface CubeMove {
   readonly notation: string;
 }
 
-export type MoveSource = 'user' | 'scramble' | 'undo' | 'debug';
+export type MoveSource = 'user' | 'scramble' | 'undo' | 'redo' | 'solve' | 'debug';
 
 export interface ActiveRotation {
   readonly key: number;

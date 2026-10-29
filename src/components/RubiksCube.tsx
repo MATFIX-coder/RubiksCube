@@ -12,10 +12,13 @@ interface RubiksCubeProps {
   cubies: readonly CubieState[];
   activeRotation: ActiveRotation | null;
   interactionEnabled: boolean;
+  celebrateKey: number;
   onGestureCommit: (move: CubeMove, fromAngle: number) => void;
   onRotationComplete: (rotation: ActiveRotation) => void;
   onOrbitLockChange: (locked: boolean) => void;
 }
+
+export const CELEBRATION_MS = 1350;
 
 interface DragState {
   readonly cubieId: string;
@@ -67,11 +70,15 @@ export function RubiksCube({
   cubies,
   activeRotation,
   interactionEnabled,
+  celebrateKey,
   onGestureCommit,
   onRotationComplete,
   onOrbitLockChange,
 }: RubiksCubeProps) {
   const refs = useRef(new Map<string, Group>());
+  const spinRef = useRef<Group>(null);
+  const celebrateRef = useRef<{ elapsedMs: number } | null>(null);
+  const lastCelebrateKey = useRef(celebrateKey);
   const dragRef = useRef<DragState | null>(null);
   const previewRef = useRef<{ move: CubeMove; angle: number } | null>(null);
   const settleRef = useRef<SettleState | null>(null);
@@ -92,18 +99,24 @@ export function RubiksCube({
 
   useEffect(() => () => onOrbitLockChange(false), [onOrbitLockChange]);
 
+  useEffect(() => {
+    if (celebrateKey === lastCelebrateKey.current) return;
+    lastCelebrateKey.current = celebrateKey;
+    celebrateRef.current = { elapsedMs: 0 };
+  }, [celebrateKey]);
+
   const register = (id: string, group: Group | null) => {
     if (group) refs.current.set(id, group);
     else refs.current.delete(id);
   };
 
   const handlePointerDown = (event: ThreeEvent<PointerEvent>, id: string) => {
-    if (!interactionEnabled || activeRotation) return;
+    if (!interactionEnabled || activeRotation || celebrateRef.current) return;
     const cubie = cubiesById.get(id);
     if (!cubie || !event.face) return;
 
     event.stopPropagation();
-    event.target.setPointerCapture(event.pointerId);
+    (event.target as unknown as Element).setPointerCapture(event.pointerId);
     const worldNormal = snapNormalToAxis(event.face.normal.clone().transformDirection(event.object.matrixWorld));
     const startPoint = event.point.clone();
     dragRef.current = {
@@ -145,7 +158,7 @@ export function RubiksCube({
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.stopPropagation();
-    event.target.releasePointerCapture(event.pointerId);
+    (event.target as unknown as Element).releasePointerCapture(event.pointerId);
     dragRef.current = null;
     onOrbitLockChange(false);
 
@@ -170,6 +183,25 @@ export function RubiksCube({
   useFrame((_, deltaSeconds) => {
     introRef.current = Math.min(1, introRef.current + deltaSeconds / 0.55);
     const introScale = 0.965 + 0.035 * easeInOutCubic(introRef.current);
+
+    // Victory lap: one smooth turn around the vertical axis with a gentle lift.
+    const spin = spinRef.current;
+    if (spin) {
+      const celebrate = celebrateRef.current;
+      if (celebrate) {
+        celebrate.elapsedMs += deltaSeconds * 1000;
+        const t = Math.min(1, celebrate.elapsedMs / CELEBRATION_MS);
+        const lift = Math.sin(Math.PI * t);
+        spin.rotation.y = Math.PI * 2 * easeInOutCubic(t);
+        spin.position.y = 0.22 * lift;
+        spin.scale.setScalar(1 + 0.035 * lift);
+        if (t >= 1) celebrateRef.current = null;
+      } else if (spin.rotation.y !== 0) {
+        spin.rotation.y = 0;
+        spin.position.y = 0;
+        spin.scale.setScalar(1);
+      }
+    }
 
     let rotationMove: CubeMove | null = null;
     let rotationAngle = 0;
@@ -200,7 +232,7 @@ export function RubiksCube({
       if (t >= 1) settleRef.current = null;
     }
 
-    const rotatingAxisIndex = rotationMove ? axisIndex(rotationMove.axis) : -1;
+    const rotatingAxisIndex = rotationMove ? axisIndex(rotationMove.axis) : 0;
     if (rotationMove) {
       tmpRotationQuaternion.setFromAxisAngle(axisVectors[rotationMove.axis], rotationAngle).normalize();
     } else {
@@ -232,20 +264,22 @@ export function RubiksCube({
 
   return (
     <group position={[0, 0.18, 0]}>
-      <mesh scale={1.43}>
-        <boxGeometry args={[1.12, 1.12, 1.12]} />
-        <meshPhysicalMaterial color="#070809" roughness={0.5} metalness={0} />
-      </mesh>
-      {cubies.map((cubie) => (
-        <Cubie
-          key={cubie.id}
-          cubie={cubie}
-          register={register}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-        />
-      ))}
+      <group ref={spinRef}>
+        <mesh scale={1.43}>
+          <boxGeometry args={[1.12, 1.12, 1.12]} />
+          <meshPhysicalMaterial color="#070809" roughness={0.5} metalness={0} />
+        </mesh>
+        {cubies.map((cubie) => (
+          <Cubie
+            key={cubie.id}
+            cubie={cubie}
+            register={register}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+          />
+        ))}
+      </group>
     </group>
   );
 }
